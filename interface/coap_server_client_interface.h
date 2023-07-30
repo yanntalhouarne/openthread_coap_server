@@ -18,5 +18,6 @@ enum light_command {
 
 #define PROVISIONING_URI_PATH "provisioning"
 #define LIGHT_URI_PATH "light"
+#define TEMPERATURE_URI_PATH "temperature"
 
 #endif
