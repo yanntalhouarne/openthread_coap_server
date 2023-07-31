@@ -15,6 +15,7 @@
 #include <openthread/srp_client_buffers.h>
 
 #include "ot_coap_utils.h"
+#include "ot_srp_config.h"
 
 LOG_MODULE_REGISTER(coap_server, CONFIG_COAP_SERVER_LOG_LEVEL);
 
@@ -27,7 +28,9 @@ static struct k_work provisioning_work;
 static struct k_timer led_timer;
 static struct k_timer provisioning_timer;
 
-const char hostname[] = "nrf52840dk";
+const char hostname[] = SRP_CLIENT_HOSTNAME;
+const char service_instance[] = SRP_CLIENT_SERVICE_INSTANCE;
+const char service_name[] = "_ot._udp";
 
 static void on_light_request(uint8_t command)
 {
@@ -128,8 +131,6 @@ static void on_thread_state_changed(otChangedFlags flags, struct openthread_cont
 		case OT_DEVICE_ROLE_ROUTER:
 		case OT_DEVICE_ROLE_LEADER:
 			dk_set_led_on(OT_CONNECTION_LED);
-			const char service_instance[] = "nrf52840-dk-node2";
-			const char service_name[] = "_ot._udp";
 			otSrpClientBuffersServiceEntry *entry = NULL;
 			uint16_t                        size;
 			char                           *string;

@@ -234,9 +234,6 @@ static void temperature_request_handler(void *context, otMessage *message,
 			srv_context.on_temperature_request;
 		}
 	}
-
-end:
-	return;
 }
  
 static void coap_default_handler(void *context, otMessage *message,
