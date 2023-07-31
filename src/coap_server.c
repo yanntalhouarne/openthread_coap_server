@@ -11,6 +11,8 @@
 #include <openthread/thread.h>
 #include <zephyr/drivers/uart.h>
 #include <zephyr/usb/usb_device.h>
+#include <openthread/srp_client.h>
+#include <openthread/srp_client_buffers.h>
 
 #include "ot_coap_utils.h"
 
@@ -24,6 +26,8 @@ static struct k_work provisioning_work;
 
 static struct k_timer led_timer;
 static struct k_timer provisioning_timer;
+
+const char hostname[] = "nrf52840dk";
 
 static void on_light_request(uint8_t command)
 {
@@ -109,12 +113,46 @@ static void on_button_changed(uint32_t button_state, uint32_t has_changed)
 static void on_thread_state_changed(otChangedFlags flags, struct openthread_context *ot_context,
 				    void *user_data)
 {
+	static uint8_t oneTime = 0;
 	if (flags & OT_CHANGED_THREAD_ROLE) {
 		switch (otThreadGetDeviceRole(ot_context->instance)) {
 		case OT_DEVICE_ROLE_CHILD:
 		case OT_DEVICE_ROLE_ROUTER:
 		case OT_DEVICE_ROLE_LEADER:
 			dk_set_led_on(OT_CONNECTION_LED);
+			const char service_instance[] = "nrf52840-dk-node2";
+			const char service_name[] = "_ot._udp";
+			otSrpClientBuffersServiceEntry *entry = NULL;
+			uint16_t                        size;
+			char                           *string;
+			//otError                         error;
+			//char                           *label;
+			if (!oneTime)
+			{
+				oneTime = 1;
+				// sot srp client host address auto 
+				if (otSrpClientSetHostName(openthread_get_default_instance(), hostname) != OT_ERROR_NONE)
+					LOG_INF("Cannot set SRP host name");
+				if (otSrpClientEnableAutoHostAddress(openthread_get_default_instance()) != OT_ERROR_NONE)
+					LOG_INF("Cannot set SRP host address to auto");
+				entry = otSrpClientBuffersAllocateService(openthread_get_default_instance());
+				string = otSrpClientBuffersGetServiceEntryInstanceNameString(entry, &size); // make sure "service_instance" is not bigger than "size"!
+				memcpy(string, service_instance, sizeof(service_instance)+1);
+				//entry->mService.mInstanceName = service_instance;
+				string = otSrpClientBuffersGetServiceEntryServiceNameString(entry, &size);
+				memcpy(string, service_name, sizeof(service_name)+1); // make sure "service_name" is not bigger than "size"!
+				//entry->mService.mName = service_name;
+				entry->mService.mNumTxtEntries = 0;
+				entry->mService.mPort = 49154;
+				if (otSrpClientAddService(openthread_get_default_instance(), &entry->mService) != OT_ERROR_NONE)
+					LOG_INF("Cannot add service to SRP client");
+				else
+					LOG_INF("SRP client service added succesfully");
+				// srp client autostart enable
+				otSrpClientEnableAutoStartMode(openthread_get_default_instance(), NULL, NULL);
+				entry = NULL;
+				//otSrpClientBuffersFreeService(openthread_get_default_instance(), entry);
+			}
 			break;
 
 		case OT_DEVICE_ROLE_DISABLED:
