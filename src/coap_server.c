@@ -109,6 +109,14 @@ static void on_button_changed(uint32_t button_state, uint32_t has_changed)
 		k_work_submit(&provisioning_work);
 	}
 }
+void my_otSrpClientCallback(otError aError, const otSrpClientHostInfo *aHostInfo, const otSrpClientService *aServices, const otSrpClientService *aRemovedServices, void *aContext);
+
+void my_otSrpClientCallback(otError aError, const otSrpClientHostInfo *aHostInfo, const otSrpClientService *aServices, const otSrpClientService *aRemovedServices, void *aContext)
+{
+
+	LOG_INF("SRP callback: ");
+	printk(otThreadErrorToString(aError));
+}
 
 static void on_thread_state_changed(otChangedFlags flags, struct openthread_context *ot_context,
 				    void *user_data)
@@ -130,6 +138,7 @@ static void on_thread_state_changed(otChangedFlags flags, struct openthread_cont
 			if (!oneTime)
 			{
 				oneTime = 1;
+				otSrpClientSetCallback(openthread_get_default_instance(), my_otSrpClientCallback, NULL);
 				// sot srp client host address auto 
 				if (otSrpClientSetHostName(openthread_get_default_instance(), hostname) != OT_ERROR_NONE)
 					LOG_INF("Cannot set SRP host name");
