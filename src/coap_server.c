@@ -57,64 +57,18 @@ static void on_light_request(uint8_t command)
 	}
 }
 
-static void activate_provisioning(struct k_work *item)
-{
-	ARG_UNUSED(item);
-
-	ot_coap_activate_provisioning();
-
-	k_timer_start(&led_timer, K_MSEC(100), K_MSEC(100));
-	k_timer_start(&provisioning_timer, K_SECONDS(5), K_NO_WAIT);
-
-	LOG_INF("Provisioning activated");
-}
-
-static void deactivate_provisionig(void)
-{
-	k_timer_stop(&led_timer);
-	k_timer_stop(&provisioning_timer);
-
-	if (ot_coap_is_provisioning_active()) {
-		ot_coap_deactivate_provisioning();
-		LOG_INF("Provisioning deactivated");
-	}
-}
-
-static void on_provisioning_timer_expiry(struct k_timer *timer_id)
-{
-	ARG_UNUSED(timer_id);
-
-	deactivate_provisionig();
-}
-
-static void on_led_timer_expiry(struct k_timer *timer_id)
-{
-	static uint8_t val = 1;
-
-	ARG_UNUSED(timer_id);
-
-	dk_set_led(PROVISIONING_LED, val);
-	val = !val;
-}
-
-static void on_led_timer_stop(struct k_timer *timer_id)
-{
-	ARG_UNUSED(timer_id);
-
-	dk_set_led_off(PROVISIONING_LED);
-}
-
 static void on_button_changed(uint32_t button_state, uint32_t has_changed)
 {
 	uint32_t buttons = button_state & has_changed;
 
 	if (buttons & DK_BTN4_MSK) {
-		k_work_submit(&provisioning_work);
+		//k_work_submit(&provisioning_work);
 	}
 }
-void my_otSrpClientCallback(otError aError, const otSrpClientHostInfo *aHostInfo, const otSrpClientService *aServices, const otSrpClientService *aRemovedServices, void *aContext);
 
-void my_otSrpClientCallback(otError aError, const otSrpClientHostInfo *aHostInfo, const otSrpClientService *aServices, const otSrpClientService *aRemovedServices, void *aContext)
+void on_srp_client_updated(otError aError, const otSrpClientHostInfo *aHostInfo, const otSrpClientService *aServices, const otSrpClientService *aRemovedServices, void *aContext);
+
+void on_srp_client_updated(otError aError, const otSrpClientHostInfo *aHostInfo, const otSrpClientService *aServices, const otSrpClientService *aRemovedServices, void *aContext)
 {
 
 	LOG_INF("SRP callback: ");
@@ -134,13 +88,10 @@ static void on_thread_state_changed(otChangedFlags flags, struct openthread_cont
 			otSrpClientBuffersServiceEntry *entry = NULL;
 			uint16_t                        size;
 			char                           *string;
-			//otError                         error;
-			//char                           *label;
 			if (!oneTime)
 			{
 				oneTime = 1;
-				otSrpClientSetCallback(openthread_get_default_instance(), my_otSrpClientCallback, NULL);
-				// sot srp client host address auto 
+				otSrpClientSetCallback(openthread_get_default_instance(), on_srp_client_updated, NULL);
 				if (otSrpClientSetHostName(openthread_get_default_instance(), hostname) != OT_ERROR_NONE)
 					LOG_INF("Cannot set SRP host name");
 				if (otSrpClientEnableAutoHostAddress(openthread_get_default_instance()) != OT_ERROR_NONE)
@@ -148,20 +99,16 @@ static void on_thread_state_changed(otChangedFlags flags, struct openthread_cont
 				entry = otSrpClientBuffersAllocateService(openthread_get_default_instance());
 				string = otSrpClientBuffersGetServiceEntryInstanceNameString(entry, &size); // make sure "service_instance" is not bigger than "size"!
 				memcpy(string, service_instance, sizeof(service_instance)+1);
-				//entry->mService.mInstanceName = service_instance;
 				string = otSrpClientBuffersGetServiceEntryServiceNameString(entry, &size);
-				memcpy(string, service_name, sizeof(service_name)+1); // make sure "service_name" is not bigger than "size"!
-				//entry->mService.mName = service_name;
+				memcpy(string, service_name, sizeof(service_name)+1); // make sure "service_name" is not bigger than "size"!;
 				entry->mService.mNumTxtEntries = 0;
 				entry->mService.mPort = 49154;
 				if (otSrpClientAddService(openthread_get_default_instance(), &entry->mService) != OT_ERROR_NONE)
 					LOG_INF("Cannot add service to SRP client");
 				else
 					LOG_INF("SRP client service added succesfully");
-				// srp client autostart enable
 				otSrpClientEnableAutoStartMode(openthread_get_default_instance(), NULL, NULL);
 				entry = NULL;
-				//otSrpClientBuffersFreeService(openthread_get_default_instance(), entry);
 			}
 			break;
 
@@ -169,7 +116,6 @@ static void on_thread_state_changed(otChangedFlags flags, struct openthread_cont
 		case OT_DEVICE_ROLE_DETACHED:
 		default:
 			dk_set_led_off(OT_CONNECTION_LED);
-			deactivate_provisionig();
 			break;
 		}
 	}
@@ -190,12 +136,7 @@ int main(void)
 
 	LOG_INF("Start CoAP-server sample");
 
-	k_timer_init(&led_timer, on_led_timer_expiry, on_led_timer_stop);
-	k_timer_init(&provisioning_timer, on_provisioning_timer_expiry, NULL);
-
-	k_work_init(&provisioning_work, activate_provisioning);
-
-	ret = ot_coap_init(&deactivate_provisionig, &on_light_request);
+	ret = ot_coap_init(&on_light_request);
 	if (ret) {
 		LOG_ERR("Could not initialize OpenThread CoAP");
 		goto end;
