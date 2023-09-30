@@ -13,6 +13,7 @@
 #include <zephyr/usb/usb_device.h>
 #include <openthread/srp_client.h>
 #include <openthread/srp_client_buffers.h>
+#include <zephyr/random/rand32.h>
 
 #include "ot_coap_utils.h"
 #include "ot_srp_config.h"
@@ -23,13 +24,10 @@ LOG_MODULE_REGISTER(coap_server, CONFIG_COAP_SERVER_LOG_LEVEL);
 #define PROVISIONING_LED DK_LED3
 #define LIGHT_LED DK_LED4
 
-static struct k_work provisioning_work;
-
-static struct k_timer led_timer;
-static struct k_timer provisioning_timer;
-
 const char hostname[] = SRP_CLIENT_HOSTNAME;
+char realhostname[sizeof(hostname)+SRP_CLIENT_RAND_SIZE];
 const char service_instance[] = SRP_CLIENT_SERVICE_INSTANCE;
+char realinstance[sizeof(service_instance)+SRP_CLIENT_RAND_SIZE];
 const char service_name[] = "_ot._udp";
 
 static void on_light_request(uint8_t command)
@@ -71,8 +69,8 @@ void on_srp_client_updated(otError aError, const otSrpClientHostInfo *aHostInfo,
 void on_srp_client_updated(otError aError, const otSrpClientHostInfo *aHostInfo, const otSrpClientService *aServices, const otSrpClientService *aRemovedServices, void *aContext)
 {
 
-	LOG_INF("SRP callback: ");
-	printk(otThreadErrorToString(aError));
+	LOG_INF("SRP callback: %s", otThreadErrorToString(aError));
+	//printk(otThreadErrorToString(aError));
 }
 
 static void on_thread_state_changed(otChangedFlags flags, struct openthread_context *ot_context,
@@ -127,12 +125,26 @@ int main(void)
 {
 	int ret;
 
+	LOG_INF("Appending random string to hostname and service instance name...");
+
 	// enable USB
 	ret = usb_enable(NULL);
 	if (ret != 0) {
 		LOG_ERR("Failed to enable USB");
 		return 0;
 	}
+
+	memcpy(realhostname, hostname, sizeof(hostname));
+	memcpy(realinstance, service_instance, sizeof(service_instance));
+	uint8_t rand[SRP_CLIENT_RAND_SIZE];
+	sys_rand_get(rand, sizeof(rand));
+	memcpy(realhostname+sizeof(hostname)-1, rand, sizeof(rand));
+	memcpy(realinstance+sizeof(service_instance)-1, rand, sizeof(rand));
+	LOG_INF("hostname is: %s\n", realhostname);
+
+
+
+	while (1);
 
 	LOG_INF("Start CoAP-server sample");
 

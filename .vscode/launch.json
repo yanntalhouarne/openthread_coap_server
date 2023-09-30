@@ -1,0 +1,12 @@
+{
+	"version": "0.2.0",
+	"configurations": [
+		{
+			"type": "nrf-connect",
+			"request": "launch",
+			"name": "Launch build_dk",
+			"config": "${workspaceFolder}/build_dk",
+			"runToEntryPoint": "main"
+		}
+	]
+}
