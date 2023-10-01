@@ -59,7 +59,7 @@ static otError temperature_response_send(otMessage *request_message,
 	if (val > 39)
 		factor *= -1;
 	else if (val < 16)
-		val = factor *= -1;
+		factor *= -1;
 	val += factor;
 
 	response = otCoapNewMessage(srv_context.ot, NULL);

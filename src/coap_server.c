@@ -28,9 +28,11 @@ LOG_MODULE_REGISTER(coap_server, CONFIG_COAP_SERVER_LOG_LEVEL);
 static struct k_timer led_timer;
 
 const char hostname[] = SRP_CLIENT_HOSTNAME;
-char realhostname[sizeof(hostname)+SRP_CLIENT_RAND_SIZE] = {0};
 const char service_instance[] = SRP_CLIENT_SERVICE_INSTANCE;
-char realinstance[sizeof(service_instance)+SRP_CLIENT_RAND_SIZE] = {0};
+#ifdef SRP_CLIENT_RNG
+char realhostname[sizeof(hostname)+SRP_CLIENT_RAND_SIZE] = {0};
+char realinstance[sizeof(service_instance)+SRP_CLIENT_RAND_SIZE+1] = {0};
+#endif
 const char service_name[] = "_ot._udp";
 
 static void on_light_request(uint8_t command)
@@ -93,8 +95,12 @@ static void on_thread_state_changed(otChangedFlags flags, struct openthread_cont
 
 				// set the SRP update callback
 				otSrpClientSetCallback(openthread_get_default_instance(), on_srp_client_updated, NULL);
-				// set the service hostname that was generated in main.c
+				// set the service hostname
+				#ifdef SRP_CLIENT_RNG
 				if (otSrpClientSetHostName(openthread_get_default_instance(), realhostname) != OT_ERROR_NONE)
+				#else
+				if (otSrpClientSetHostName(openthread_get_default_instance(), hostname) != OT_ERROR_NONE)
+				#endif
 					LOG_INF("Cannot set SRP host name");
 				// set address to auto
 				if (otSrpClientEnableAutoHostAddress(openthread_get_default_instance()) != OT_ERROR_NONE)
@@ -103,8 +109,12 @@ static void on_thread_state_changed(otChangedFlags flags, struct openthread_cont
 				entry = otSrpClientBuffersAllocateService(openthread_get_default_instance());
 				// get the service instance name string buffer from OT SRP API
 				string = otSrpClientBuffersGetServiceEntryInstanceNameString(entry, &size); // make sure "service_instance" is not bigger than "size"!
-				// copy the service instance name generated in main.c
+				// copy the service instance
+				#ifdef SRP_CLIENT_RNG
 				memcpy(string, realinstance, sizeof(realinstance)+1);
+				#else
+				memcpy(string, service_instance, sizeof(service_instance)+1);		
+				#endif		
 				// get the service name string buffer from OT SRP API
 				string = otSrpClientBuffersGetServiceEntryServiceNameString(entry, &size);
 				// copy the service name (_ot._udp)
@@ -138,25 +148,30 @@ int main(void)
 {
 	int ret;
 
-	LOG_INF("main.c entry point.");
-
 	// enable USB
 	ret = usb_enable(NULL);
 	if (ret != 0) {
 		LOG_ERR("Failed to enable USB");
 		return 0;
 	}
-	/* append a random number of size SRP_CLIENT_RAND_SIZE to the service hostname and service instance string buffers */
-	// first copy the hostname and service instance defined defined by SRP_CLIENT_HOSTNAME and SRP_CLIENT_SERVICE_INSTANCE, respectively
-	memcpy(realhostname, hostname, sizeof(hostname));
-	memcpy(realinstance, service_instance, sizeof(service_instance));
-	// get a random uint32_t (true random, hw based)
-	uint32_t rn = sys_rand32_get();
-	// append the random number as a string to the hostname and service_instance buffers (numbe of digits is defined by SRP_CLIENT_RAND_SIZE)
-	snprintf(realhostname+sizeof(hostname)-1, SRP_CLIENT_RAND_SIZE, "%u", rn);
-	snprintf(realinstance+sizeof(service_instance)-1, SRP_CLIENT_RAND_SIZE, "%u", rn);
-	LOG_INF("hostname is: %s\n", realhostname);
-	LOG_INF("service instance is: %s\n", realhostname);
+
+	#ifdef SRP_CLIENT_RNG
+		LOG_INF("Appending random number to hostname");
+		/* append a random number of size SRP_CLIENT_RAND_SIZE to the service hostname and service instance string buffers */
+		// first copy the hostname and service instance defined defined by SRP_CLIENT_HOSTNAME and SRP_CLIENT_SERVICE_INSTANCE, respectively
+		memcpy(realhostname, hostname, sizeof(hostname));
+		memcpy(realinstance, service_instance, sizeof(service_instance));
+		// get a random uint32_t (true random, hw based)
+		uint32_t rn = sys_rand32_get();
+		// append the random number as a string to the hostname and service_instance buffers (numbe of digits is defined by SRP_CLIENT_RAND_SIZE)
+		snprintf(realhostname+sizeof(hostname), SRP_CLIENT_RAND_SIZE, "-%u", rn);
+		snprintf(realinstance+sizeof(service_instance), SRP_CLIENT_RAND_SIZE, "-%u", rn);
+		LOG_INF("hostname is: %s\n", realhostname);
+		LOG_INF("service instance is: %s\n", realhostname);
+	#else
+		LOG_INF("hostname is: %s\n", hostname);
+		LOG_INF("service instance is: %s\n", hostname);
+	#endif
 
 	LOG_INF("Start CoAP-server sample");
 	ret = ot_coap_init(&on_light_request);
