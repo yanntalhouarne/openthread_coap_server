@@ -52,7 +52,15 @@ static otError temperature_response_send(otMessage *request_message,
 	otMessage *response;
 	const void *payload;
 	uint16_t payload_size;
-	uint8_t val = 23;
+	static uint8_t val = 23;
+	int8_t factor = 1;
+
+	// simulate data
+	if (val > 39)
+		factor *= -1;
+	else if (val < 16)
+		val = factor *= -1;
+	val += factor;
 
 	response = otCoapNewMessage(srv_context.ot, NULL);
 	if (response == NULL) {

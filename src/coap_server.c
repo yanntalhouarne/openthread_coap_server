@@ -25,10 +25,7 @@ LOG_MODULE_REGISTER(coap_server, CONFIG_COAP_SERVER_LOG_LEVEL);
 #define PROVISIONING_LED DK_LED3
 #define LIGHT_LED DK_LED4
 
-static struct k_work provisioning_work;
-
 static struct k_timer led_timer;
-static struct k_timer provisioning_timer;
 
 const char hostname[] = SRP_CLIENT_HOSTNAME;
 char realhostname[sizeof(hostname)+SRP_CLIENT_RAND_SIZE] = {0};
@@ -74,9 +71,7 @@ void on_srp_client_updated(otError aError, const otSrpClientHostInfo *aHostInfo,
 
 void on_srp_client_updated(otError aError, const otSrpClientHostInfo *aHostInfo, const otSrpClientService *aServices, const otSrpClientService *aRemovedServices, void *aContext)
 {
-
-	LOG_INF("SRP callback: ");
-	printk(otThreadErrorToString(aError));
+	LOG_INF("SRP callback: %s", otThreadErrorToString(aError));
 }
 
 static void on_thread_state_changed(otChangedFlags flags, struct openthread_context *ot_context,
@@ -95,22 +90,34 @@ static void on_thread_state_changed(otChangedFlags flags, struct openthread_cont
 			if (!oneTime)
 			{
 				oneTime = 1;
+
+				// set the SRP update callback
 				otSrpClientSetCallback(openthread_get_default_instance(), on_srp_client_updated, NULL);
+				// set the service hostname that was generated in main.c
 				if (otSrpClientSetHostName(openthread_get_default_instance(), realhostname) != OT_ERROR_NONE)
 					LOG_INF("Cannot set SRP host name");
+				// set address to auto
 				if (otSrpClientEnableAutoHostAddress(openthread_get_default_instance()) != OT_ERROR_NONE)
 					LOG_INF("Cannot set SRP host address to auto");
+				// allocate service buffers from OT SRP API
 				entry = otSrpClientBuffersAllocateService(openthread_get_default_instance());
+				// get the service instance name string buffer from OT SRP API
 				string = otSrpClientBuffersGetServiceEntryInstanceNameString(entry, &size); // make sure "service_instance" is not bigger than "size"!
+				// copy the service instance name generated in main.c
 				memcpy(string, realinstance, sizeof(realinstance)+1);
+				// get the service name string buffer from OT SRP API
 				string = otSrpClientBuffersGetServiceEntryServiceNameString(entry, &size);
-				memcpy(string, realinstance, sizeof(realinstance)+1); // make sure "service_name" is not bigger than "size"!;
+				// copy the service name (_ot._udp)
+				memcpy(string, service_name, sizeof(service_name)+1); // make sure "service_name" is not bigger than "size"!;
+				// configure service
 				entry->mService.mNumTxtEntries = 0;
 				entry->mService.mPort = 49154;
+				// add service
 				if (otSrpClientAddService(openthread_get_default_instance(), &entry->mService) != OT_ERROR_NONE)
 					LOG_INF("Cannot add service to SRP client");
 				else
 					LOG_INF("SRP client service added succesfully");
+				// start SRP client (and set to auto-mode)
 				otSrpClientEnableAutoStartMode(openthread_get_default_instance(), NULL, NULL);
 				entry = NULL;
 			}
@@ -139,18 +146,19 @@ int main(void)
 		LOG_ERR("Failed to enable USB");
 		return 0;
 	}
-
-	
+	/* append a random number of size SRP_CLIENT_RAND_SIZE to the service hostname and service instance string buffers */
+	// first copy the hostname and service instance defined defined by SRP_CLIENT_HOSTNAME and SRP_CLIENT_SERVICE_INSTANCE, respectively
 	memcpy(realhostname, hostname, sizeof(hostname));
 	memcpy(realinstance, service_instance, sizeof(service_instance));
+	// get a random uint32_t (true random, hw based)
 	uint32_t rn = sys_rand32_get();
-	LOG_INF("random uint32_t is: %u\n", rn);
+	// append the random number as a string to the hostname and service_instance buffers (numbe of digits is defined by SRP_CLIENT_RAND_SIZE)
 	snprintf(realhostname+sizeof(hostname)-1, SRP_CLIENT_RAND_SIZE, "%u", rn);
 	snprintf(realinstance+sizeof(service_instance)-1, SRP_CLIENT_RAND_SIZE, "%u", rn);
 	LOG_INF("hostname is: %s\n", realhostname);
 	LOG_INF("service instance is: %s\n", realhostname);
-	LOG_INF("Start CoAP-server sample");
 
+	LOG_INF("Start CoAP-server sample");
 	ret = ot_coap_init(&on_light_request);
 	if (ret) {
 		LOG_ERR("Could not initialize OpenThread CoAP");
