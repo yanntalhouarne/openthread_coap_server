@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
  */
 
+//#include <stdio. h> // for snprintf
 #include <zephyr/kernel.h>
 #include <dk_buttons_and_leds.h>
 #include <zephyr/logging/log.h>
@@ -13,6 +14,7 @@
 #include <zephyr/usb/usb_device.h>
 #include <openthread/srp_client.h>
 #include <openthread/srp_client_buffers.h>
+#include <zephyr/random/rand32.h>
 
 #include "ot_coap_utils.h"
 #include "ot_srp_config.h"
@@ -29,7 +31,9 @@ static struct k_timer led_timer;
 static struct k_timer provisioning_timer;
 
 const char hostname[] = SRP_CLIENT_HOSTNAME;
+char realhostname[sizeof(hostname)+SRP_CLIENT_RAND_SIZE] = {0};
 const char service_instance[] = SRP_CLIENT_SERVICE_INSTANCE;
+char realinstance[sizeof(service_instance)+SRP_CLIENT_RAND_SIZE] = {0};
 const char service_name[] = "_ot._udp";
 
 static void on_light_request(uint8_t command)
@@ -92,15 +96,15 @@ static void on_thread_state_changed(otChangedFlags flags, struct openthread_cont
 			{
 				oneTime = 1;
 				otSrpClientSetCallback(openthread_get_default_instance(), on_srp_client_updated, NULL);
-				if (otSrpClientSetHostName(openthread_get_default_instance(), hostname) != OT_ERROR_NONE)
+				if (otSrpClientSetHostName(openthread_get_default_instance(), realhostname) != OT_ERROR_NONE)
 					LOG_INF("Cannot set SRP host name");
 				if (otSrpClientEnableAutoHostAddress(openthread_get_default_instance()) != OT_ERROR_NONE)
 					LOG_INF("Cannot set SRP host address to auto");
 				entry = otSrpClientBuffersAllocateService(openthread_get_default_instance());
 				string = otSrpClientBuffersGetServiceEntryInstanceNameString(entry, &size); // make sure "service_instance" is not bigger than "size"!
-				memcpy(string, service_instance, sizeof(service_instance)+1);
+				memcpy(string, realinstance, sizeof(realinstance)+1);
 				string = otSrpClientBuffersGetServiceEntryServiceNameString(entry, &size);
-				memcpy(string, service_name, sizeof(service_name)+1); // make sure "service_name" is not bigger than "size"!;
+				memcpy(string, realinstance, sizeof(realinstance)+1); // make sure "service_name" is not bigger than "size"!;
 				entry->mService.mNumTxtEntries = 0;
 				entry->mService.mPort = 49154;
 				if (otSrpClientAddService(openthread_get_default_instance(), &entry->mService) != OT_ERROR_NONE)
@@ -127,6 +131,8 @@ int main(void)
 {
 	int ret;
 
+	LOG_INF("main.c entry point.");
+
 	// enable USB
 	ret = usb_enable(NULL);
 	if (ret != 0) {
@@ -134,6 +140,15 @@ int main(void)
 		return 0;
 	}
 
+	
+	memcpy(realhostname, hostname, sizeof(hostname));
+	memcpy(realinstance, service_instance, sizeof(service_instance));
+	uint32_t rn = sys_rand32_get();
+	LOG_INF("random uint32_t is: %u\n", rn);
+	snprintf(realhostname+sizeof(hostname)-1, SRP_CLIENT_RAND_SIZE, "%u", rn);
+	snprintf(realinstance+sizeof(service_instance)-1, SRP_CLIENT_RAND_SIZE, "%u", rn);
+	LOG_INF("hostname is: %s\n", realhostname);
+	LOG_INF("service instance is: %s\n", realhostname);
 	LOG_INF("Start CoAP-server sample");
 
 	ret = ot_coap_init(&on_light_request);
