@@ -53,7 +53,7 @@ static otError temperature_response_send(otMessage *request_message,
 	const void *payload;
 	uint16_t payload_size;
 	static uint8_t val = 23;
-	int8_t factor = 1;
+	static int8_t factor = 1;
 
 	// simulate data
 	if (val > 39)
