@@ -25,6 +25,8 @@ LOG_MODULE_REGISTER(coap_server, CONFIG_COAP_SERVER_LOG_LEVEL);
 #define PROVISIONING_LED DK_LED3
 #define LIGHT_LED DK_LED4
 
+#define PUMP_MAX_ACTIVE_TIME 10
+
 static struct k_timer led_timer;
 
 /* timer */
@@ -37,7 +39,7 @@ const char service_instance[] = SRP_CLIENT_SERVICE_INSTANCE;
 char realhostname[sizeof(hostname)+SRP_CLIENT_RAND_SIZE] = {0};
 char realinstance[sizeof(service_instance)+SRP_CLIENT_RAND_SIZE+1] = {0};
 #endif
-const char service_name[] = "_ot._udp";
+const char service_name[] = SRP_SERVICE_NAME;
 
 static void on_light_request(uint8_t command)
 {
@@ -47,7 +49,7 @@ static void on_light_request(uint8_t command)
 		{
 			coap_activate_pump();
 			dk_set_led_on(LIGHT_LED);
-			k_timer_start(&pump_timer, K_SECONDS(5), K_NO_WAIT); // pump will be active for 5 seconds, unless a stop command is received
+			k_timer_start(&pump_timer, K_SECONDS(PUMP_MAX_ACTIVE_TIME), K_NO_WAIT); // pump will be active for 5 seconds, unless a stop command is received
 		}
 		break;
 
