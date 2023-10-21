@@ -27,6 +27,10 @@ LOG_MODULE_REGISTER(coap_server, CONFIG_COAP_SERVER_LOG_LEVEL);
 
 static struct k_timer led_timer;
 
+/* timer */
+static struct k_timer pump_timer;
+
+/* hostname */
 const char hostname[] = SRP_CLIENT_HOSTNAME;
 const char service_instance[] = SRP_CLIENT_SERVICE_INSTANCE;
 #ifdef SRP_CLIENT_RNG
@@ -37,22 +41,23 @@ const char service_name[] = "_ot._udp";
 
 static void on_light_request(uint8_t command)
 {
-	static uint8_t val;
-
 	switch (command) {
 	case THREAD_COAP_UTILS_LIGHT_CMD_ON:
-		dk_set_led_on(LIGHT_LED);
-		val = 1;
+		if (coap_is_pump_active() == false)
+		{
+			coap_activate_pump();
+			dk_set_led_on(LIGHT_LED);
+			k_timer_start(&pump_timer, K_SECONDS(5), K_NO_WAIT); // pump will be active for 5 seconds, unless a stop command is received
+		}
 		break;
 
 	case THREAD_COAP_UTILS_LIGHT_CMD_OFF:
-		dk_set_led_off(LIGHT_LED);
-		val = 0;
-		break;
-
-	case THREAD_COAP_UTILS_LIGHT_CMD_TOGGLE:
-		val = !val;
-		dk_set_led(LIGHT_LED, val);
+		if (coap_is_pump_active() == true)
+		{
+			coap_diactivate_pump();
+			dk_set_led_off(LIGHT_LED);
+			k_timer_stop(&pump_timer);
+		}
 		break;
 
 	default:
@@ -126,7 +131,7 @@ static void on_thread_state_changed(otChangedFlags flags, struct openthread_cont
 				if (otSrpClientAddService(openthread_get_default_instance(), &entry->mService) != OT_ERROR_NONE)
 					LOG_INF("Cannot add service to SRP client");
 				else
-					LOG_INF("SRP client service added succesfully");
+					LOG_INF("Adding SRP client service...");
 				// start SRP client (and set to auto-mode)
 				otSrpClientEnableAutoStartMode(openthread_get_default_instance(), NULL, NULL);
 				entry = NULL;
@@ -143,6 +148,18 @@ static void on_thread_state_changed(otChangedFlags flags, struct openthread_cont
 }
 static struct openthread_state_changed_cb ot_state_chaged_cb = { .state_changed_cb =
 									 on_thread_state_changed };
+
+static void on_pump_timer_expiry(struct k_timer *timer_id)
+{
+	ARG_UNUSED(timer_id);
+
+	coap_diactivate_pump();
+
+	dk_set_led_off(LIGHT_LED);
+
+	k_timer_stop(&pump_timer);
+
+}
 
 int main(void)
 {
@@ -191,6 +208,9 @@ int main(void)
 		LOG_ERR("Cannot init buttons (error: %d)", ret);
 		goto end;
 	}
+
+	/* Timer */
+	k_timer_init(&pump_timer, on_pump_timer_expiry, NULL);
 
 	openthread_state_changed_cb_register(openthread_get_default_context(), &ot_state_chaged_cb);
 	openthread_start(openthread_get_default_context());

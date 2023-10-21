@@ -12,8 +12,7 @@
 /**@brief Enumeration describing light commands. */
 enum light_command {
 	THREAD_COAP_UTILS_LIGHT_CMD_OFF = '0',
-	THREAD_COAP_UTILS_LIGHT_CMD_ON = '1',
-	THREAD_COAP_UTILS_LIGHT_CMD_TOGGLE = '2'
+	THREAD_COAP_UTILS_LIGHT_CMD_ON = '1'
 };
 
 #define PROVISIONING_URI_PATH "provisioning"
