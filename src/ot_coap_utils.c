@@ -259,8 +259,9 @@ static otError light_get_response_send(otMessage *request_message, const otMessa
 end:
 	if (error != OT_ERROR_NONE && response != NULL) {
 		otMessageFree(response);
+		LOG_INF("Couldn't send Light GET response");
 	}
-	LOG_INF("Couldn't send Light GET response");
+
 	return error;
 }
 

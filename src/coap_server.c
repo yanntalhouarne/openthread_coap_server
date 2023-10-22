@@ -192,6 +192,9 @@ int main(void)
 		LOG_INF("service instance is: %s\n", hostname);
 	#endif
 
+	LOG_INF("DEVICEID0: %08X\n", NRF_FICR->DEVICEID[0]);
+	LOG_INF("DEVICEID1: %08X\n", NRF_FICR->DEVICEID[1]);
+
 	LOG_INF("Start CoAP-server sample");
 	ret = ot_coap_init(&on_light_request);
 	if (ret) {
