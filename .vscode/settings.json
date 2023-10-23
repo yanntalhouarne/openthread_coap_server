@@ -8,5 +8,8 @@
         "cstdio": "c",
         "coap_server_client_interface.h": "c",
         "system_error": "c"
+    },
+    "nrf-connect.debugging.bindings": {
+        "${workspaceFolder}/build_dk": "Launch build_dk"
     }
 }

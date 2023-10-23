@@ -36,9 +36,13 @@ static struct k_timer pump_timer;
 const char hostname[] = SRP_CLIENT_HOSTNAME;
 const char service_instance[] = SRP_CLIENT_SERVICE_INSTANCE;
 #ifdef SRP_CLIENT_RNG
-char realhostname[sizeof(hostname)+SRP_CLIENT_RAND_SIZE] = {0};
+char realhostname[sizeof(hostname)+SRP_CLIENT_RAND_SIZE+1] = {0};
 char realinstance[sizeof(service_instance)+SRP_CLIENT_RAND_SIZE+1] = {0};
+#elif SRP_CLIENT_UNIQUE
+char realhostname[sizeof(hostname)+SRP_CLIENT_UNIQUE_SIZE+1] = {0};
+char realinstance[sizeof(service_instance)+SRP_CLIENT_UNIQUE_SIZE+1] = {0};
 #endif
+
 const char service_name[] = SRP_SERVICE_NAME;
 
 static void on_light_request(uint8_t command)
@@ -103,7 +107,7 @@ static void on_thread_state_changed(otChangedFlags flags, struct openthread_cont
 				// set the SRP update callback
 				otSrpClientSetCallback(openthread_get_default_instance(), on_srp_client_updated, NULL);
 				// set the service hostname
-				#ifdef SRP_CLIENT_RNG
+				#if defined SRP_CLIENT_RNG || defined SRP_CLIENT_UNIQUE
 				if (otSrpClientSetHostName(openthread_get_default_instance(), realhostname) != OT_ERROR_NONE)
 				#else
 				if (otSrpClientSetHostName(openthread_get_default_instance(), hostname) != OT_ERROR_NONE)
@@ -117,7 +121,7 @@ static void on_thread_state_changed(otChangedFlags flags, struct openthread_cont
 				// get the service instance name string buffer from OT SRP API
 				string = otSrpClientBuffersGetServiceEntryInstanceNameString(entry, &size); // make sure "service_instance" is not bigger than "size"!
 				// copy the service instance
-				#ifdef SRP_CLIENT_RNG
+				#if defined SRP_CLIENT_RNG || defined SRP_CLIENT_UNIQUE
 				memcpy(string, realinstance, sizeof(realinstance)+1);
 				#else
 				memcpy(string, service_instance, sizeof(service_instance)+1);		
@@ -183,17 +187,26 @@ int main(void)
 		// get a random uint32_t (true random, hw based)
 		uint32_t rn = sys_rand32_get();
 		// append the random number as a string to the hostname and service_instance buffers (numbe of digits is defined by SRP_CLIENT_RAND_SIZE)
-		snprintf(realhostname+sizeof(hostname), SRP_CLIENT_RAND_SIZE, "-%u", rn);
-		snprintf(realinstance+sizeof(service_instance), SRP_CLIENT_RAND_SIZE, "-%u", rn);
+		snprintf(realhostname+sizeof(hostname)-1, SRP_CLIENT_RAND_SIZE+2, "-%x", rn);
+		snprintf(realinstance+sizeof(service_instance)-1, SRP_CLIENT_RAND_SIZE+2, "-%x", rn);
 		LOG_INF("hostname is: %s\n", realhostname);
 		LOG_INF("service instance is: %s\n", realhostname);
+	#elif SRP_CLIENT_UNIQUE
+		LOG_INF("Appending device ID to hostname");
+		// first copy the hostname and service instance defined defined by SRP_CLIENT_HOSTNAME and SRP_CLIENT_SERVICE_INSTANCE, respectively
+		memcpy(realhostname, hostname, sizeof(hostname));
+		memcpy(realinstance, service_instance, sizeof(service_instance));
+		// get a device ID
+		uint32_t device_id = NRF_FICR->DEVICEID[0];
+		// append the random number as a string to the hostname and service_instance buffers (numbe of digits is defined by SRP_CLIENT_RAND_SIZE)
+		snprintf(realhostname+sizeof(hostname)-1, SRP_CLIENT_UNIQUE_SIZE+2, "-%x", device_id);
+		snprintf(realinstance+sizeof(service_instance)-1, SRP_CLIENT_UNIQUE_SIZE+2, "-%x", device_id);
+		LOG_INF("hostname is: %s\n", realhostname);
+		LOG_INF("service instance is: %s\n", realinstance);
 	#else
 		LOG_INF("hostname is: %s\n", hostname);
-		LOG_INF("service instance is: %s\n", hostname);
+		LOG_INF("service instance is: %s\n", service_instance);
 	#endif
-
-	LOG_INF("DEVICEID0: %08X\n", NRF_FICR->DEVICEID[0]);
-	LOG_INF("DEVICEID1: %08X\n", NRF_FICR->DEVICEID[1]);
 
 	LOG_INF("Start CoAP-server sample");
 	ret = ot_coap_init(&on_light_request);
