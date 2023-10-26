@@ -16,8 +16,26 @@
 #include <openthread/srp_client_buffers.h>
 #include <zephyr/random/rand32.h>
 
+#include <zephyr/device.h>
+#include <zephyr/drivers/adc.h>
+#include <zephyr/devicetree.h>
+
 #include "ot_coap_utils.h"
 #include "ot_srp_config.h"
+
+#if !DT_NODE_EXISTS(DT_PATH(zephyr_user)) || \
+	!DT_NODE_HAS_PROP(DT_PATH(zephyr_user), io_channels)
+#error "No suitable devicetree overlay specified"
+#endif
+
+#define DT_SPEC_AND_COMMA(node_id, prop, idx) \
+	ADC_DT_SPEC_GET_BY_IDX(node_id, idx),
+
+/* Data of ADC io-channels specified in devicetree. */
+static const struct adc_dt_spec adc_channels[] = {
+	DT_FOREACH_PROP_ELEM(DT_PATH(zephyr_user), io_channels,
+			     DT_SPEC_AND_COMMA)
+};
 
 LOG_MODULE_REGISTER(coap_server, CONFIG_COAP_SERVER_LOG_LEVEL);
 
@@ -25,12 +43,20 @@ LOG_MODULE_REGISTER(coap_server, CONFIG_COAP_SERVER_LOG_LEVEL);
 #define PROVISIONING_LED DK_LED3
 #define LIGHT_LED DK_LED4
 
-#define PUMP_MAX_ACTIVE_TIME 10
+#define PUMP_MAX_ACTIVE_TIME 10 // seconds
+#define ADC_TIMER_PERIOD 10 // seconds
 
-static struct k_timer led_timer;
+// ADC globals
+uint16_t buf;
+struct adc_sequence sequence = {
+	.buffer = &buf,
+	/* buffer size in bytes, not number of samples */
+	.buffer_size = sizeof(buf),
+};
 
 /* timer */
 static struct k_timer pump_timer;
+static struct k_timer adc_timer;
 
 /* hostname */
 const char hostname[] = SRP_CLIENT_HOSTNAME;
@@ -78,6 +104,39 @@ static void on_button_changed(uint32_t button_state, uint32_t has_changed)
 	if (buttons & DK_BTN4_MSK) {
 		//k_work_submit(&provisioning_work);
 	}
+}
+
+void srp_client_generate_name()
+{
+	#ifdef SRP_CLIENT_UNIQUE
+		LOG_INF("Appending device ID to hostname");
+		// first copy the hostname and service instance defined defined by SRP_CLIENT_HOSTNAME and SRP_CLIENT_SERVICE_INSTANCE, respectively
+		memcpy(realhostname, hostname, sizeof(hostname));
+		memcpy(realinstance, service_instance, sizeof(service_instance));
+		// get a device ID
+		uint32_t device_id = NRF_FICR->DEVICEID[0];
+		// append the random number as a string to the hostname and service_instance buffers (numbe of digits is defined by SRP_CLIENT_RAND_SIZE)
+		snprintf(realhostname+sizeof(hostname)-1, SRP_CLIENT_UNIQUE_SIZE+2, "-%x", device_id);
+		snprintf(realinstance+sizeof(service_instance)-1, SRP_CLIENT_UNIQUE_SIZE+2, "-%x", device_id);
+		LOG_INF("hostname is: %s\n", realhostname);
+		LOG_INF("service instance is: %s\n", realinstance);
+	#elif SRP_CLIENT_RNG
+		LOG_INF("Appending random number to hostname");
+		/* append a random number of size SRP_CLIENT_RAND_SIZE to the service hostname and service instance string buffers */
+		// first copy the hostname and service instance defined defined by SRP_CLIENT_HOSTNAME and SRP_CLIENT_SERVICE_INSTANCE, respectively
+		memcpy(realhostname, hostname, sizeof(hostname));
+		memcpy(realinstance, service_instance, sizeof(service_instance));
+		// get a random uint32_t (true random, hw based)
+		uint32_t rn = sys_rand32_get();
+		// append the random number as a string to the hostname and service_instance buffers (numbe of digits is defined by SRP_CLIENT_RAND_SIZE)
+		snprintf(realhostname+sizeof(hostname)-1, SRP_CLIENT_RAND_SIZE+2, "-%x", rn);
+		snprintf(realinstance+sizeof(service_instance)-1, SRP_CLIENT_RAND_SIZE+2, "-%x", rn);
+		LOG_INF("hostname is: %s\n", realhostname);
+		LOG_INF("service instance is: %s\n", realinstance);
+	#else
+		LOG_INF("hostname is: %s\n", hostname);
+		LOG_INF("service instance is: %s\n", service_instance);
+	#endif
 }
 
 void on_srp_client_updated(otError aError, const otSrpClientHostInfo *aHostInfo, const otSrpClientService *aServices, const otSrpClientService *aRemovedServices, void *aContext);
@@ -167,6 +226,36 @@ static void on_pump_timer_expiry(struct k_timer *timer_id)
 
 }
 
+static void on_adc_timer_expiry(struct k_timer *timer_id)
+{
+	ARG_UNUSED(timer_id);
+	LOG_INF("In ADC timer!");
+
+	int err;
+
+	for (size_t i = 0U; i < ARRAY_SIZE(adc_channels); i++) {
+		int32_t val_mv;
+
+		(void)adc_sequence_init_dt(&adc_channels[i], &sequence);
+
+		err = adc_read(adc_channels[i].dev, &sequence);
+		if (err < 0) {
+			LOG_ERR("Could not read (%d)\n", err);
+			continue;
+		}
+
+		/* conversion to mV may not be supported, skip if not */
+		val_mv = buf;
+		err = adc_raw_to_millivolts_dt(&adc_channels[i],
+							&val_mv);
+		if (err < 0) {
+			LOG_ERR(" (value in mV not available)\n");
+		} else {
+			//LOG_INF(" = %"PRId32" mV\n", val_mv);
+		}
+	}
+}
+
 int main(void)
 {
 	int ret;
@@ -178,35 +267,24 @@ int main(void)
 		return 0;
 	}
 
-	#ifdef SRP_CLIENT_RNG
-		LOG_INF("Appending random number to hostname");
-		/* append a random number of size SRP_CLIENT_RAND_SIZE to the service hostname and service instance string buffers */
-		// first copy the hostname and service instance defined defined by SRP_CLIENT_HOSTNAME and SRP_CLIENT_SERVICE_INSTANCE, respectively
-		memcpy(realhostname, hostname, sizeof(hostname));
-		memcpy(realinstance, service_instance, sizeof(service_instance));
-		// get a random uint32_t (true random, hw based)
-		uint32_t rn = sys_rand32_get();
-		// append the random number as a string to the hostname and service_instance buffers (numbe of digits is defined by SRP_CLIENT_RAND_SIZE)
-		snprintf(realhostname+sizeof(hostname)-1, SRP_CLIENT_RAND_SIZE+2, "-%x", rn);
-		snprintf(realinstance+sizeof(service_instance)-1, SRP_CLIENT_RAND_SIZE+2, "-%x", rn);
-		LOG_INF("hostname is: %s\n", realhostname);
-		LOG_INF("service instance is: %s\n", realhostname);
-	#elif SRP_CLIENT_UNIQUE
-		LOG_INF("Appending device ID to hostname");
-		// first copy the hostname and service instance defined defined by SRP_CLIENT_HOSTNAME and SRP_CLIENT_SERVICE_INSTANCE, respectively
-		memcpy(realhostname, hostname, sizeof(hostname));
-		memcpy(realinstance, service_instance, sizeof(service_instance));
-		// get a device ID
-		uint32_t device_id = NRF_FICR->DEVICEID[0];
-		// append the random number as a string to the hostname and service_instance buffers (numbe of digits is defined by SRP_CLIENT_RAND_SIZE)
-		snprintf(realhostname+sizeof(hostname)-1, SRP_CLIENT_UNIQUE_SIZE+2, "-%x", device_id);
-		snprintf(realinstance+sizeof(service_instance)-1, SRP_CLIENT_UNIQUE_SIZE+2, "-%x", device_id);
-		LOG_INF("hostname is: %s\n", realhostname);
-		LOG_INF("service instance is: %s\n", realinstance);
-	#else
-		LOG_INF("hostname is: %s\n", hostname);
-		LOG_INF("service instance is: %s\n", service_instance);
-	#endif
+	// setup ADC
+	uint32_t count = 0;
+
+	/* Configure channels individually prior to sampling. */
+	for (size_t i = 0U; i < ARRAY_SIZE(adc_channels); i++) {
+		if (!device_is_ready(adc_channels[i].dev)) {
+			LOG_ERR("ADC controller device not ready\n");
+			return;
+		}
+		ret = adc_channel_setup_dt(&adc_channels[i]);
+		if (ret < 0) {
+			LOG_ERR("Could not setup channel #%d (%d)\n", i, ret);
+			return;
+		}
+	}
+
+	// generate a SRP client name to be advertised (mode defined in ot_srp_config.h macros)
+	srp_client_generate_name();
 
 	LOG_INF("Start CoAP-server sample");
 	ret = ot_coap_init(&on_light_request);
@@ -229,6 +307,8 @@ int main(void)
 
 	/* Timer */
 	k_timer_init(&pump_timer, on_pump_timer_expiry, NULL);
+	k_timer_init(&adc_timer, on_adc_timer_expiry, NULL);
+	k_timer_start(&adc_timer, K_SECONDS(ADC_TIMER_PERIOD), K_SECONDS(ADC_TIMER_PERIOD)); // pump will be active for 5 seconds, unless a stop command is received
 
 	openthread_state_changed_cb_register(openthread_get_default_context(), &ot_state_chaged_cb);
 	openthread_start(openthread_get_default_context());
