@@ -12,9 +12,9 @@
 /**@brief Type definition of the function used to handle light resource change.
  */
 typedef void (*light_request_callback_t)(uint8_t cmd);
-typedef void (*provisioning_request_callback_t)();
-typedef void (*temperature_request_callback_t)();
+typedef int8_t (*temperature_request_callback_t)();
+typedef struct fw_version (*info_request_callback_t)();
+int ot_coap_init(light_request_callback_t on_light_request, temperature_request_callback_t, info_request_callback_t);
 
-int ot_coap_init(light_request_callback_t on_light_request);
 
 #endif

@@ -21,7 +21,8 @@ struct server_context {
 	struct otInstance *ot;
 	bool pump_active;
 	light_request_callback_t on_light_request;
-	light_request_callback_t on_temperature_request;
+	temperature_request_callback_t on_temperature_request;
+	info_request_callback_t on_info_request;
 };
 
 static struct server_context srv_context = {
@@ -29,6 +30,12 @@ static struct server_context srv_context = {
 	.pump_active = false,
 	.on_light_request = NULL,
 	.on_temperature_request = NULL,
+};
+
+struct fw_version {
+	// FW version
+	const char * fw_version_buf;
+	uint8_t fw_version_size;
 };
 
 void coap_activate_pump(void)
@@ -61,23 +68,90 @@ static otCoapResource temperature_resource = {
 	.mContext = NULL,
 	.mNext = NULL,
 };
+/* Information resource callbacks*/
+static otError info_response_send(otMessage *request_message, const otMessageInfo *message_info)
+{
+	otError error = OT_ERROR_NO_BUFS;
+	otMessage *response;
+	const void *payload;
+	uint16_t payload_size;
+	struct fw_version fw;
 
+	fw = srv_context.on_info_request(); // get temperature from coap_server.c
+
+	response = otCoapNewMessage(srv_context.ot, NULL);
+	if (response == NULL) {
+		goto end;
+	}
+
+	otCoapMessageInit(response, OT_COAP_TYPE_NON_CONFIRMABLE,
+			  OT_COAP_CODE_CONTENT);
+
+	error = otCoapMessageSetToken(
+		response, otCoapMessageGetToken(request_message),
+		otCoapMessageGetTokenLength(request_message));
+	if (error != OT_ERROR_NONE) {
+		goto end;
+	}
+
+	error = otCoapMessageSetPayloadMarker(response);
+	if (error != OT_ERROR_NONE) {
+		goto end;
+	}
+
+
+	payload = &fw.fw_version_buf;
+	payload_size = sizeof(fw.fw_version_size);
+
+	error = otMessageAppend(response, payload, payload_size);
+	if (error != OT_ERROR_NONE) {
+		goto end;
+	}
+
+	error = otCoapSendResponse(srv_context.ot, response, message_info);
+
+	LOG_INF("Firmware version is: %s", fw.fw_version_buf);
+
+end:
+	if (error != OT_ERROR_NONE && response != NULL) {
+		otMessageFree(response);
+	}
+
+	return error;
+}
+static void info_request_handler(void *context, otMessage *message, const otMessageInfo *message_info)
+{
+	otError error;
+	otMessageInfo msg_info;
+
+	ARG_UNUSED(context);
+
+	LOG_INF("Received info request");
+
+	if ((otCoapMessageGetType(message) == OT_COAP_TYPE_CONFIRMABLE) &&
+	    (otCoapMessageGetCode(message) == OT_COAP_CODE_GET)) {
+		msg_info = *message_info;
+		memset(&msg_info.mSockAddr, 0, sizeof(msg_info.mSockAddr));
+
+		info_response_send(message, &msg_info);
+	}
+	else
+	{
+		LOG_INF("Bad info request type or code.");
+	}
+}
+
+/* Temperature resource callbacks*/
 static otError temperature_response_send(otMessage *request_message, const otMessageInfo *message_info)
 {
 	otError error = OT_ERROR_NO_BUFS;
 	otMessage *response;
 	const void *payload;
 	uint16_t payload_size;
-	static uint8_t val = 23;
-	static int8_t factor = 1;
+	int8_t val = 0;
 
-	// simulate data
-	if (val > 39)
-		factor *= -1;
-	else if (val < 16)
-		factor *= -1;
-	val += factor;
-
+	val = srv_context.on_temperature_request(); // get temperature from coap_server.c
+	
 	response = otCoapNewMessage(srv_context.ot, NULL);
 	if (response == NULL) {
 		goto end;
@@ -117,7 +191,6 @@ end:
 
 	return error;
 }
-
 static void temperature_request_handler(void *context, otMessage *message, const otMessageInfo *message_info)
 {
 	otError error;
@@ -132,9 +205,6 @@ static void temperature_request_handler(void *context, otMessage *message, const
 		msg_info = *message_info;
 		memset(&msg_info.mSockAddr, 0, sizeof(msg_info.mSockAddr));
 
-		// the on_temperature_request function is not implemented yet. In the future, this is where the ADC value will be read (from coap_server.c)
-		srv_context.on_temperature_request;
-
 		temperature_response_send(message, &msg_info);
 	}
 	else
@@ -142,7 +212,7 @@ static void temperature_request_handler(void *context, otMessage *message, const
 		LOG_INF("Bad temperature request type or code.");
 	}
 }
- 
+/* Light resource callbacks*/
 static otError light_put_response_send(otMessage *request_message, const otMessageInfo *message_info)
 {
 	otError error = OT_ERROR_NO_BUFS;
@@ -161,15 +231,6 @@ static otError light_put_response_send(otMessage *request_message, const otMessa
 	// init response message
 	otCoapMessageInitResponse(response, request_message, OT_COAP_TYPE_ACKNOWLEDGMENT,
 			  OT_COAP_CODE_CHANGED);
-
-	// //set message token
-	// error = otCoapMessageSetToken(
-	// 	response, otCoapMessageGetToken(request_message),
-	// 	otCoapMessageGetTokenLength(request_message));
-	// if (error != OT_ERROR_NONE) {
-	// 	LOG_INF("Error in otCoapMessageSetToken()");
-	// 	goto end;
-	// }
 
 	// set message payload marker
 	error = otCoapMessageSetPayloadMarker(response);
@@ -208,7 +269,6 @@ end:
 
 	return error;
 }
-
 static otError light_get_response_send(otMessage *request_message, const otMessageInfo *message_info)
 {
 	otError error = OT_ERROR_NO_BUFS;
@@ -264,12 +324,10 @@ end:
 
 	return error;
 }
-
 static void light_request_handler(void *context, otMessage *message, const otMessageInfo *message_info)
 {
 	uint8_t command;
 	otMessageInfo msg_info;
-	uint8_t isGetMessage = 0;
 
 	uint8_t isTypePut = 0;
 
@@ -323,10 +381,12 @@ static void coap_default_handler(void *context, otMessage *message,
 }
 
 
-int ot_coap_init(light_request_callback_t on_light_request)
+int ot_coap_init(light_request_callback_t on_light_request, temperature_request_callback_t on_temperature_request, info_request_callback_t on_info_request)
 {
 	otError error;
 	srv_context.on_light_request = on_light_request;
+	srv_context.on_temperature_request = on_temperature_request;
+	srv_context.on_info_request = on_info_request;
 
 	srv_context.ot = openthread_get_default_instance();
 	if (!srv_context.ot) {

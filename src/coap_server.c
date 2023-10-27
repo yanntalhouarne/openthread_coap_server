@@ -46,6 +46,9 @@ LOG_MODULE_REGISTER(coap_server, CONFIG_COAP_SERVER_LOG_LEVEL);
 #define PUMP_MAX_ACTIVE_TIME 10 // seconds
 #define ADC_TIMER_PERIOD 10 // seconds
 
+// FW version
+const char fw_version[] = SRP_CLIENT_INFO;
+
 // ADC globals
 uint16_t buf;
 struct adc_sequence sequence = {
@@ -53,6 +56,19 @@ struct adc_sequence sequence = {
 	/* buffer size in bytes, not number of samples */
 	.buffer_size = sizeof(buf),
 };
+
+struct fw_version {
+	// FW version
+	const char * fw_version_buf;
+	uint8_t fw_version_size;
+};
+
+struct fw_version fw = {
+	.fw_version_buf = fw_version,
+	.fw_version_size = sizeof(fw_version),
+};
+
+int16_t temperature = 0;
 
 /* timer */
 static struct k_timer pump_timer;
@@ -70,6 +86,11 @@ char realinstance[sizeof(service_instance)+SRP_CLIENT_UNIQUE_SIZE+1] = {0};
 #endif
 
 const char service_name[] = SRP_SERVICE_NAME;
+
+struct fw_version on_info_request()
+{
+	return fw;
+}
 
 static void on_light_request(uint8_t command)
 {
@@ -95,6 +116,38 @@ static void on_light_request(uint8_t command)
 	default:
 		break;
 	}
+}
+
+
+static int8_t on_temperature_request()
+{
+	int err;
+	int32_t val_mv;
+
+	for (size_t i = 0U; i < ARRAY_SIZE(adc_channels); i++) {
+
+		(void)adc_sequence_init_dt(&adc_channels[i], &sequence);
+
+		err = adc_read(adc_channels[i].dev, &sequence);
+		if (err < 0) {
+			LOG_ERR("Could not read (%d)\n", err);
+			continue;
+		}
+
+		/* conversion to mV may not be supported, skip if not */
+		val_mv = buf;
+		err = adc_raw_to_millivolts_dt(&adc_channels[i],
+							&val_mv);
+		if (err < 0) {
+			LOG_ERR(" (value in mV not available)\n");
+		}
+	}
+
+	temperature = (uint8_t)val_mv;
+
+	LOG_INF("Temperature is %d\n", temperature);	
+
+	return temperature;
 }
 
 static void on_button_changed(uint32_t button_state, uint32_t has_changed)
@@ -229,12 +282,12 @@ static void on_pump_timer_expiry(struct k_timer *timer_id)
 static void on_adc_timer_expiry(struct k_timer *timer_id)
 {
 	ARG_UNUSED(timer_id);
-	LOG_INF("In ADC timer!");
 
 	int err;
+	int32_t val_mv;
 
 	for (size_t i = 0U; i < ARRAY_SIZE(adc_channels); i++) {
-		int32_t val_mv;
+
 
 		(void)adc_sequence_init_dt(&adc_channels[i], &sequence);
 
@@ -250,25 +303,22 @@ static void on_adc_timer_expiry(struct k_timer *timer_id)
 							&val_mv);
 		if (err < 0) {
 			LOG_ERR(" (value in mV not available)\n");
-		} else {
-			//LOG_INF(" = %"PRId32" mV\n", val_mv);
 		}
 	}
+
+	temperature = (int16_t)val_mv;
 }
 
 int main(void)
 {
 	int ret;
 
-	// enable USB
+	/* enable USB */
 	ret = usb_enable(NULL);
 	if (ret != 0) {
 		LOG_ERR("Failed to enable USB");
 		return 0;
 	}
-
-	// setup ADC
-	uint32_t count = 0;
 
 	/* Configure channels individually prior to sampling. */
 	for (size_t i = 0U; i < ARRAY_SIZE(adc_channels); i++) {
@@ -283,11 +333,11 @@ int main(void)
 		}
 	}
 
-	// generate a SRP client name to be advertised (mode defined in ot_srp_config.h macros)
+	/* generate a SRP client name to be advertised (mode defined in ot_srp_config.h macros) */
 	srp_client_generate_name();
 
 	LOG_INF("Start CoAP-server sample");
-	ret = ot_coap_init(&on_light_request);
+	ret = ot_coap_init(&on_light_request, &on_temperature_request, &on_info_request);
 	if (ret) {
 		LOG_ERR("Could not initialize OpenThread CoAP");
 		goto end;
@@ -308,7 +358,12 @@ int main(void)
 	/* Timer */
 	k_timer_init(&pump_timer, on_pump_timer_expiry, NULL);
 	k_timer_init(&adc_timer, on_adc_timer_expiry, NULL);
-	k_timer_start(&adc_timer, K_SECONDS(ADC_TIMER_PERIOD), K_SECONDS(ADC_TIMER_PERIOD)); // pump will be active for 5 seconds, unless a stop command is received
+	/* 
+		If we want to get the temperature value periodically, start the timer.
+		Otherwise, the ADC will be check only upon a tempereature GET request 
+		from coap server. 
+	*/
+	//k_timer_start(&adc_timer, K_SECONDS(ADC_TIMER_PERIOD), K_SECONDS(ADC_TIMER_PERIOD));
 
 	openthread_state_changed_cb_register(openthread_get_default_context(), &ot_state_chaged_cb);
 	openthread_start(openthread_get_default_context());

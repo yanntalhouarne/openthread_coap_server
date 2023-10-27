@@ -7,3 +7,5 @@
 #define SRP_CLIENT_RAND_SIZE 8
 #define SRP_CLIENT_UNIQUE_SIZE 8
 #define SRP_SERVICE_NAME "_ot._udp"
+
+#define SRP_CLIENT_INFO "v1.00"
