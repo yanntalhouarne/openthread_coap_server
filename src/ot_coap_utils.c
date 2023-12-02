@@ -79,36 +79,32 @@ static otError info_response_send(otMessage *request_message, const otMessageInf
 
 	fw = srv_context.on_info_request(); // get temperature from coap_server.c
 
+	// create response message
 	response = otCoapNewMessage(srv_context.ot, NULL);
 	if (response == NULL) {
+		LOG_INF("Error in otCoapNewMessage()");
 		goto end;
 	}
 
-	otCoapMessageInit(response, OT_COAP_TYPE_NON_CONFIRMABLE,
-			  OT_COAP_CODE_CONTENT);
+	// init response message
+	otCoapMessageInitResponse(response, request_message, OT_COAP_TYPE_ACKNOWLEDGMENT,
+			  OT_COAP_CODE_CHANGED);
 
-	error = otCoapMessageSetToken(
-		response, otCoapMessageGetToken(request_message),
-		otCoapMessageGetTokenLength(request_message));
-	if (error != OT_ERROR_NONE) {
-		goto end;
-	}
-
+	// set message payload marker
 	error = otCoapMessageSetPayloadMarker(response);
 	if (error != OT_ERROR_NONE) {
+		LOG_INF("Error in otCoapMessageSetPayloadMarker()");
 		goto end;
 	}
 
-
-	payload = &fw.fw_version_buf;
-	payload_size = sizeof(fw.fw_version_size);
+	payload = fw.fw_version_buf;
+	payload_size = fw.fw_version_size;
 
 	error = otMessageAppend(response, payload, payload_size);
 	if (error != OT_ERROR_NONE) {
+		LOG_INF("Error in otMessageAppend()");
 		goto end;
 	}
-
-	error = otCoapSendResponse(srv_context.ot, response, message_info);
 
 	LOG_INF("Firmware version is: %s", fw.fw_version_buf);
 

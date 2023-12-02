@@ -9,9 +9,12 @@
         "coap_server_client_interface.h": "c",
         "system_error": "c",
         "adc.h": "c",
-        "ot_srp_config.h": "c"
+        "ot_srp_config.h": "c",
+        "ot_coap_utils.h": "c",
+        "devicetree.h": "c"
     },
     "nrf-connect.debugging.bindings": {
-        "${workspaceFolder}/build_dk": "Launch build_dk"
+        "${workspaceFolder}/build_dk": "Launch build_dk",
+        "${workspaceFolder}/build_1": "Launch build_1"
     }
 }

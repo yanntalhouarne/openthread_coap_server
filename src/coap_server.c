@@ -208,7 +208,7 @@ static void on_thread_state_changed(otChangedFlags flags, struct openthread_cont
 		case OT_DEVICE_ROLE_CHILD:
 		case OT_DEVICE_ROLE_ROUTER:
 		case OT_DEVICE_ROLE_LEADER:
-			dk_set_led_on(OT_CONNECTION_LED);
+			dk_set_led_off(OT_CONNECTION_LED);
 			otSrpClientBuffersServiceEntry *entry = NULL;
 			uint16_t                        size;
 			char                           *string;
@@ -259,7 +259,7 @@ static void on_thread_state_changed(otChangedFlags flags, struct openthread_cont
 		case OT_DEVICE_ROLE_DISABLED:
 		case OT_DEVICE_ROLE_DETACHED:
 		default:
-			dk_set_led_off(OT_CONNECTION_LED);
+			dk_set_led_on(OT_CONNECTION_LED);
 			break;
 		}
 	}
@@ -348,6 +348,29 @@ int main(void)
 		LOG_ERR("Could not initialize leds, err code: %d", ret);
 		goto end;
 	}
+
+	dk_set_led_off(OT_CONNECTION_LED);
+	k_sleep(K_MSEC(100));
+	dk_set_led_on(OT_CONNECTION_LED);
+	k_sleep(K_MSEC(100));
+	dk_set_led_off(OT_CONNECTION_LED);
+	k_sleep(K_MSEC(100));
+	dk_set_led_on(OT_CONNECTION_LED);
+	k_sleep(K_MSEC(100));
+	dk_set_led_off(OT_CONNECTION_LED);
+	k_sleep(K_MSEC(100));
+	dk_set_led_on(OT_CONNECTION_LED);
+	k_sleep(K_MSEC(100));
+
+	dk_set_led_on(1);
+	k_sleep(K_MSEC(100));
+	dk_set_led_off(1);
+	dk_set_led_on(2);
+	k_sleep(K_MSEC(100));
+	dk_set_led_off(2);
+	dk_set_led_on(3);
+	k_sleep(K_MSEC(100));
+	dk_set_led_off(3);
 
 	ret = dk_buttons_init(on_button_changed);
 	if (ret) {
