@@ -39,12 +39,13 @@ static const struct adc_dt_spec adc_channels[] = {
 
 LOG_MODULE_REGISTER(coap_server, CONFIG_COAP_SERVER_LOG_LEVEL);
 
-#define OT_CONNECTION_LED DK_LED1
-#define PROVISIONING_LED DK_LED3
-#define LIGHT_LED DK_LED4
+#define OT_CONNECTION_LED 3
+#define PROVISIONING_LED 2
+#define LIGHT_LED 0
+#define WATER_PUMP 4
 
 #define PUMP_MAX_ACTIVE_TIME 10 // seconds
-#define ADC_TIMER_PERIOD 10 // seconds
+#define ADC_TIMER_PERIOD 1 // seconds
 
 // FW version
 const char fw_version[] = SRP_CLIENT_INFO;
@@ -100,6 +101,7 @@ static void on_light_request(uint8_t command)
 		{
 			coap_activate_pump();
 			dk_set_led_on(LIGHT_LED);
+			dk_set_led_on(WATER_PUMP);
 			k_timer_start(&pump_timer, K_SECONDS(PUMP_MAX_ACTIVE_TIME), K_NO_WAIT); // pump will be active for 5 seconds, unless a stop command is received
 		}
 		break;
@@ -109,6 +111,7 @@ static void on_light_request(uint8_t command)
 		{
 			coap_diactivate_pump();
 			dk_set_led_off(LIGHT_LED);
+			dk_set_led_off(WATER_PUMP);
 			k_timer_stop(&pump_timer);
 		}
 		break;
@@ -274,6 +277,7 @@ static void on_pump_timer_expiry(struct k_timer *timer_id)
 	coap_diactivate_pump();
 
 	dk_set_led_off(LIGHT_LED);
+	dk_set_led_off(WATER_PUMP);
 
 	k_timer_stop(&pump_timer);
 
@@ -282,7 +286,6 @@ static void on_pump_timer_expiry(struct k_timer *timer_id)
 static void on_adc_timer_expiry(struct k_timer *timer_id)
 {
 	ARG_UNUSED(timer_id);
-
 	int err;
 	int32_t val_mv;
 
@@ -354,6 +357,36 @@ int main(void)
 		LOG_ERR("Cannot init buttons (error: %d)", ret);
 		goto end;
 	}
+
+	dk_set_led_on(OT_CONNECTION_LED);
+	k_sleep(K_MSEC(100));
+	dk_set_led_off(OT_CONNECTION_LED);
+	k_sleep(K_MSEC(100));
+	dk_set_led_on(OT_CONNECTION_LED);
+	k_sleep(K_MSEC(100));
+	dk_set_led_off(OT_CONNECTION_LED);
+	k_sleep(K_MSEC(100));
+	dk_set_led_on(OT_CONNECTION_LED);
+	k_sleep(K_MSEC(100));
+	dk_set_led_off(OT_CONNECTION_LED);
+	k_sleep(K_MSEC(100));
+
+	dk_set_led_on(LIGHT_LED);
+	k_sleep(K_MSEC(100));
+	dk_set_led_off(LIGHT_LED);
+	k_sleep(K_MSEC(100));
+	dk_set_led_on(LIGHT_LED);
+	k_sleep(K_MSEC(100));
+	dk_set_led_off(LIGHT_LED);
+	k_sleep(K_MSEC(100));
+	dk_set_led_on(LIGHT_LED);
+	k_sleep(K_MSEC(100));
+	dk_set_led_off(LIGHT_LED);
+	k_sleep(K_MSEC(100));
+
+	// dk_set_led_on(WATER_PUMP);
+	// k_sleep(K_MSEC(10000));
+	// dk_set_led_off(WATER_PUMP);
 
 	/* Timer */
 	k_timer_init(&pump_timer, on_pump_timer_expiry, NULL);
