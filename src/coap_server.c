@@ -175,7 +175,7 @@ static int8_t on_temperature_request()
 			LOG_INF("Warning: (Fuel-gauge) Some properties failed\n");
 		}
 		if (props_fuel_gauge[2].status == 0) {
-			LOG_INF("Charge %d%%\n", props[2].value.state_of_charge);
+			LOG_INF("Charge %d%%\n", props_fuel_gauge[2].value.state_of_charge);
 		} else {
 			LOG_INF(
 			"Property FUEL_GAUGE_STATE_OF_CHARGE failed with error %d\n",
