@@ -18,6 +18,7 @@
 
 #include <zephyr/device.h>
 #include <zephyr/drivers/adc.h>
+#include <zephyr/drivers/fuel_gauge.h>
 #include <zephyr/devicetree.h>
 
 #include "ot_coap_utils.h"
@@ -75,6 +76,23 @@ int16_t temperature = 0;
 static struct k_timer pump_timer;
 static struct k_timer adc_timer;
 
+/* fuel gauge*/
+const struct device *const dev_fuelgauge = DEVICE_DT_GET_ANY(maxim_max17048);
+struct fuel_gauge_get_property props_fuel_gauge[] = {
+	{
+		.property_type = FUEL_GAUGE_RUNTIME_TO_EMPTY,
+	},
+	{
+		.property_type = FUEL_GAUGE_RUNTIME_TO_FULL,
+	},
+	{
+		.property_type = FUEL_GAUGE_STATE_OF_CHARGE,
+	},
+	{
+		.property_type = FUEL_GAUGE_VOLTAGE,
+	}
+};
+
 /* hostname */
 const char hostname[] = SRP_CLIENT_HOSTNAME;
 const char service_instance[] = SRP_CLIENT_SERVICE_INSTANCE;
@@ -127,28 +145,48 @@ static int8_t on_temperature_request()
 	int err;
 	int32_t val_mv;
 
-	for (size_t i = 0U; i < ARRAY_SIZE(adc_channels); i++) {
+	// /* READ TEMPERATURE */
+	// for (size_t i = 0U; i < ARRAY_SIZE(adc_channels); i++) {
 
-		(void)adc_sequence_init_dt(&adc_channels[i], &sequence);
+	// 	(void)adc_sequence_init_dt(&adc_channels[i], &sequence);
 
-		err = adc_read(adc_channels[i].dev, &sequence);
-		if (err < 0) {
-			LOG_ERR("Could not read (%d)\n", err);
-			continue;
+	// 	err = adc_read(adc_channels[i].dev, &sequence);
+	// 	if (err < 0) {
+	// 		LOG_ERR("Could not read (%d)\n", err);
+	// 		continue;
+	// 	}
+
+	// 	/* conversion to mV may not be supported, skip if not */
+	// 	val_mv = buf;
+	// 	err = adc_raw_to_millivolts_dt(&adc_channels[i],
+	// 						&val_mv);
+	// 	if (err < 0) {
+	// 		LOG_ERR(" (value in mV not available)\n");
+	// 	}
+	// }
+	// temperature = (uint8_t)val_mv;
+
+	/* READ BATTERY SOC */
+	err = fuel_gauge_get_prop(dev_fuelgauge, props_fuel_gauge, ARRAY_SIZE(props_fuel_gauge));
+	if (err < 0) {
+		LOG_INF("Error: cannot get properties\n");
+	} else {
+		if (err != 0) {
+			LOG_INF("Warning: (Fuel-gauge) Some properties failed\n");
 		}
-
-		/* conversion to mV may not be supported, skip if not */
-		val_mv = buf;
-		err = adc_raw_to_millivolts_dt(&adc_channels[i],
-							&val_mv);
-		if (err < 0) {
-			LOG_ERR(" (value in mV not available)\n");
+		if (props_fuel_gauge[2].status == 0) {
+			LOG_INF("Charge %d%%\n", props[2].value.state_of_charge);
+		} else {
+			LOG_INF(
+			"Property FUEL_GAUGE_STATE_OF_CHARGE failed with error %d\n",
+			props_fuel_gauge[2].status
+			);
 		}
 	}
 
-	temperature = (uint8_t)val_mv;
+	temperature = (uint8_t)props_fuel_gauge[2].value.state_of_charge;
 
-	LOG_INF("Temperature is %d\n", temperature);	
+	LOG_INF("Temperature is %d\n", temperature);
 
 	return temperature;
 }
@@ -157,7 +195,7 @@ static void on_button_changed(uint32_t button_state, uint32_t has_changed)
 {
 	uint32_t buttons = button_state & has_changed;
 
-	if (buttons & DK_BTN4_MSK) {
+	if (buttons & 4) {
 		//k_work_submit(&provisioning_work);
 	}
 }
@@ -239,8 +277,8 @@ static void on_thread_state_changed(otChangedFlags flags, struct openthread_cont
 				#if defined SRP_CLIENT_RNG || defined SRP_CLIENT_UNIQUE
 				memcpy(string, realinstance, sizeof(realinstance)+1);
 				#else
-				memcpy(string, service_instance, sizeof(service_instance)+1);		
-				#endif		
+				memcpy(string, service_instance, sizeof(service_instance)+1);
+				#endif
 				// get the service name string buffer from OT SRP API
 				string = otSrpClientBuffersGetServiceEntryServiceNameString(entry, &size);
 				// copy the service name (_ot._udp)
@@ -320,19 +358,83 @@ int main(void)
 	ret = usb_enable(NULL);
 	if (ret != 0) {
 		LOG_ERR("Failed to enable USB");
-		return 0;
+		goto end;
+	}
+
+	k_sleep(K_MSEC(5000));
+
+	/* Fuel Gauge */
+
+	if (dev_fuelgauge == NULL) {
+		LOG_ERR("\nError: no device found.\n");
+		goto end;
+	}
+	if (!device_is_ready(dev_fuelgauge)) {
+		LOG_ERR("\nError: Device \"%s\" is not ready; "
+		       "check the driver initialization logs for errors.\n",
+		       dev_fuelgauge->name);
+		goto end;
+	}
+	LOG_INF("Found device \"%s\", getting fuel gauge data\n", dev_fuelgauge->name);
+	if (dev_fuelgauge == NULL) {
+		goto end;
+	}
+
+	ret = fuel_gauge_get_prop(dev_fuelgauge, props_fuel_gauge, ARRAY_SIZE(props_fuel_gauge));
+	if (ret < 0) {
+		LOG_INF("Error: cannot get properties\n");
+	} else {
+		if (ret != 0) {
+			LOG_INF("Warning: Some properties failed\n");
+		}
+
+		if (props_fuel_gauge[0].status == 0) {
+			LOG_INF("Time to empty %d\n", props_fuel_gauge[0].value.runtime_to_empty);
+		} else {
+			LOG_INF(
+			"Property FUEL_GAUGE_RUNTIME_TO_EMPTY failed with error %d\n",
+			props_fuel_gauge[0].status
+			);
+		}
+
+		if (props_fuel_gauge[1].status == 0) {
+			LOG_INF("Time to full %d\n", props_fuel_gauge[1].value.runtime_to_full);
+		} else {
+			LOG_INF(
+			"Property FUEL_GAUGE_RUNTIME_TO_FULL failed with error %d\n",
+			props_fuel_gauge[1].status
+			);
+		}
+
+		if (props_fuel_gauge[2].status == 0) {
+			LOG_INF("Charge %d%%\n", props_fuel_gauge[2].value.state_of_charge);
+		} else {
+			LOG_INF(
+			"Property FUEL_GAUGE_STATE_OF_CHARGE failed with error %d\n",
+			props_fuel_gauge[2].status
+			);
+		}
+
+		if (props_fuel_gauge[3].status == 0) {
+			LOG_INF("Voltage %d\n", props_fuel_gauge[3].value.voltage);
+		} else {
+			LOG_INF(
+			"Property FUEL_GAUGE_VOLTAGE failed with error %d\n",
+			props_fuel_gauge[3].status
+			);
+		}
 	}
 
 	/* Configure channels individually prior to sampling. */
 	for (size_t i = 0U; i < ARRAY_SIZE(adc_channels); i++) {
 		if (!device_is_ready(adc_channels[i].dev)) {
 			LOG_ERR("ADC controller device not ready\n");
-			return;
+			goto end;
 		}
 		ret = adc_channel_setup_dt(&adc_channels[i]);
 		if (ret < 0) {
 			LOG_ERR("Could not setup channel #%d (%d)\n", i, ret);
-			return;
+			goto end;
 		}
 	}
 
@@ -391,10 +493,10 @@ int main(void)
 	/* Timer */
 	k_timer_init(&pump_timer, on_pump_timer_expiry, NULL);
 	k_timer_init(&adc_timer, on_adc_timer_expiry, NULL);
-	/* 
+	/*
 		If we want to get the temperature value periodically, start the timer.
-		Otherwise, the ADC will be check only upon a tempereature GET request 
-		from coap server. 
+		Otherwise, the ADC will be check only upon a tempereature GET request
+		from coap server.
 	*/
 	//k_timer_start(&adc_timer, K_SECONDS(ADC_TIMER_PERIOD), K_SECONDS(ADC_TIMER_PERIOD));
 
