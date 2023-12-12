@@ -47,6 +47,11 @@ LOG_MODULE_REGISTER(coap_server, CONFIG_COAP_SERVER_LOG_LEVEL);
 
 #define PUMP_MAX_ACTIVE_TIME 10 // seconds
 #define ADC_TIMER_PERIOD 1 // seconds
+#define HUMIDITY_DRY 2100 // in mV
+#define HUMIDITY_WET 800
+
+// data global
+uint8_t data[2] = {0};
 
 // FW version
 const char fw_version[] = SRP_CLIENT_INFO;
@@ -140,55 +145,66 @@ static void on_light_request(uint8_t command)
 }
 
 
-static int8_t on_temperature_request()
+static int8_t * on_temperature_request()
 {
 	int err;
 	int32_t val_mv;
+	float temp_val = 0;
 
-	// /* READ TEMPERATURE */
-	// for (size_t i = 0U; i < ARRAY_SIZE(adc_channels); i++) {
+	/* READ TEMPERATURE */
+	for (size_t i = 0U; i < ARRAY_SIZE(adc_channels); i++) {
 
-	// 	(void)adc_sequence_init_dt(&adc_channels[i], &sequence);
+		(void)adc_sequence_init_dt(&adc_channels[i], &sequence);
 
-	// 	err = adc_read(adc_channels[i].dev, &sequence);
-	// 	if (err < 0) {
-	// 		LOG_ERR("Could not read (%d)\n", err);
-	// 		continue;
-	// 	}
+		err = adc_read(adc_channels[i].dev, &sequence);
+		if (err < 0) {
+			LOG_ERR("Could not read (%d)\n", err);
+			continue;
+		}
 
-	// 	/* conversion to mV may not be supported, skip if not */
-	// 	val_mv = buf;
-	// 	err = adc_raw_to_millivolts_dt(&adc_channels[i],
-	// 						&val_mv);
-	// 	if (err < 0) {
-	// 		LOG_ERR(" (value in mV not available)\n");
-	// 	}
-	// }
-	// temperature = (uint8_t)val_mv;
+		/* conversion to mV may not be supported, skip if not */
+		val_mv = buf;
+		err = adc_raw_to_millivolts_dt(&adc_channels[i],
+							&val_mv);
+		if (err < 0) {
+			LOG_ERR(" (value in mV not available)\n");
+		}
+	}
+	// converts from mV to humidity
+	temp_val = (float)val_mv;
+	if (temp_val < HUMIDITY_WET)
+		temp_val = HUMIDITY_WET;
+	else if (temp_val > HUMIDITY_DRY)
+		temp_val = HUMIDITY_DRY;
+	temp_val -= HUMIDITY_WET;
+	temp_val /= (HUMIDITY_DRY-HUMIDITY_WET);
+	temp_val *= 100;
+	temp_val = 100 - temp_val;
+
+	data[0] = (uint8_t)temp_val;
 
 	/* READ BATTERY SOC */
 	err = fuel_gauge_get_prop(dev_fuelgauge, props_fuel_gauge, ARRAY_SIZE(props_fuel_gauge));
 	if (err < 0) {
-		LOG_INF("Error: cannot get properties\n");
+		LOG_INF("Error: properties\n");
 	} else {
 		if (err != 0) {
-			LOG_INF("Warning: (Fuel-gauge) Some properties failed\n");
+			LOG_INF("Warning: (Fuel-gauge)\n");
 		}
 		if (props_fuel_gauge[2].status == 0) {
-			LOG_INF("Charge %d%%\n", props_fuel_gauge[2].value.state_of_charge);
+			data[1] = (uint8_t)props_fuel_gauge[2].value.state_of_charge;
 		} else {
 			LOG_INF(
-			"Property FUEL_GAUGE_STATE_OF_CHARGE failed with error %d\n",
+			"SOC error %d\n",
 			props_fuel_gauge[2].status
 			);
+			data[1] = 0;
 		}
 	}
 
-	temperature = (uint8_t)props_fuel_gauge[2].value.state_of_charge;
+	LOG_INF("temperature = %d, battery = %d\n", data[0], data[1]);
 
-	LOG_INF("Temperature is %d\n", temperature);
-
-	return temperature;
+	return data;
 }
 
 static void on_button_changed(uint32_t button_state, uint32_t has_changed)
@@ -354,14 +370,45 @@ int main(void)
 {
 	int ret;
 
-	/* enable USB */
-	ret = usb_enable(NULL);
-	if (ret != 0) {
-		LOG_ERR("Failed to enable USB");
+	ret = dk_leds_init();
+	if (ret) {
+		LOG_ERR("Could not initialize leds, err code: %d", ret);
 		goto end;
 	}
 
-	k_sleep(K_MSEC(5000));
+	dk_set_led_on(OT_CONNECTION_LED);
+	k_sleep(K_MSEC(100));
+	dk_set_led_off(OT_CONNECTION_LED);
+	k_sleep(K_MSEC(100));
+	dk_set_led_on(OT_CONNECTION_LED);
+	k_sleep(K_MSEC(100));
+	dk_set_led_off(OT_CONNECTION_LED);
+	k_sleep(K_MSEC(100));
+	dk_set_led_on(OT_CONNECTION_LED);
+	k_sleep(K_MSEC(100));
+	dk_set_led_off(OT_CONNECTION_LED);
+	k_sleep(K_MSEC(100));
+
+	dk_set_led_on(LIGHT_LED);
+	k_sleep(K_MSEC(100));
+	dk_set_led_off(LIGHT_LED);
+	k_sleep(K_MSEC(100));
+	dk_set_led_on(LIGHT_LED);
+	k_sleep(K_MSEC(100));
+	dk_set_led_off(LIGHT_LED);
+	k_sleep(K_MSEC(100));
+	dk_set_led_on(LIGHT_LED);
+	k_sleep(K_MSEC(100));
+	dk_set_led_off(LIGHT_LED);
+	k_sleep(K_MSEC(100));
+
+	/* enable USB */
+	// ret = usb_enable(NULL);
+	// if (ret != 0) {
+	// 	LOG_ERR("Failed to enable USB");
+	// 	goto end;
+	// }
+	// k_sleep(K_MSEC(5000));
 
 	/* Fuel Gauge */
 
@@ -392,7 +439,7 @@ int main(void)
 			LOG_INF("Time to empty %d\n", props_fuel_gauge[0].value.runtime_to_empty);
 		} else {
 			LOG_INF(
-			"Property FUEL_GAUGE_RUNTIME_TO_EMPTY failed with error %d\n",
+			"Time to empty error %d\n",
 			props_fuel_gauge[0].status
 			);
 		}
@@ -401,7 +448,7 @@ int main(void)
 			LOG_INF("Time to full %d\n", props_fuel_gauge[1].value.runtime_to_full);
 		} else {
 			LOG_INF(
-			"Property FUEL_GAUGE_RUNTIME_TO_FULL failed with error %d\n",
+			"Time to full error %d\n",
 			props_fuel_gauge[1].status
 			);
 		}
@@ -410,7 +457,7 @@ int main(void)
 			LOG_INF("Charge %d%%\n", props_fuel_gauge[2].value.state_of_charge);
 		} else {
 			LOG_INF(
-			"Property FUEL_GAUGE_STATE_OF_CHARGE failed with error %d\n",
+			"Time to full error %d\n",
 			props_fuel_gauge[2].status
 			);
 		}
@@ -419,7 +466,7 @@ int main(void)
 			LOG_INF("Voltage %d\n", props_fuel_gauge[3].value.voltage);
 		} else {
 			LOG_INF(
-			"Property FUEL_GAUGE_VOLTAGE failed with error %d\n",
+			"FUEL_GAUGE_VOLTAGEerror %d\n",
 			props_fuel_gauge[3].status
 			);
 		}
@@ -448,43 +495,13 @@ int main(void)
 		goto end;
 	}
 
-	ret = dk_leds_init();
-	if (ret) {
-		LOG_ERR("Could not initialize leds, err code: %d", ret);
-		goto end;
-	}
-
 	ret = dk_buttons_init(on_button_changed);
 	if (ret) {
 		LOG_ERR("Cannot init buttons (error: %d)", ret);
 		goto end;
 	}
 
-	dk_set_led_on(OT_CONNECTION_LED);
-	k_sleep(K_MSEC(100));
-	dk_set_led_off(OT_CONNECTION_LED);
-	k_sleep(K_MSEC(100));
-	dk_set_led_on(OT_CONNECTION_LED);
-	k_sleep(K_MSEC(100));
-	dk_set_led_off(OT_CONNECTION_LED);
-	k_sleep(K_MSEC(100));
-	dk_set_led_on(OT_CONNECTION_LED);
-	k_sleep(K_MSEC(100));
-	dk_set_led_off(OT_CONNECTION_LED);
-	k_sleep(K_MSEC(100));
 
-	dk_set_led_on(LIGHT_LED);
-	k_sleep(K_MSEC(100));
-	dk_set_led_off(LIGHT_LED);
-	k_sleep(K_MSEC(100));
-	dk_set_led_on(LIGHT_LED);
-	k_sleep(K_MSEC(100));
-	dk_set_led_off(LIGHT_LED);
-	k_sleep(K_MSEC(100));
-	dk_set_led_on(LIGHT_LED);
-	k_sleep(K_MSEC(100));
-	dk_set_led_off(LIGHT_LED);
-	k_sleep(K_MSEC(100));
 
 	// dk_set_led_on(WATER_PUMP);
 	// k_sleep(K_MSEC(10000));

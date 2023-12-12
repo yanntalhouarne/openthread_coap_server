@@ -148,9 +148,9 @@ static otError temperature_response_send(otMessage *request_message, const otMes
 	otMessage *response;
 	const void *payload;
 	uint16_t payload_size;
-	int8_t val = 0;
+	int8_t * data_buf = {0};
 
-	val = srv_context.on_temperature_request(); // get temperature from coap_server.c
+	data_buf = srv_context.on_temperature_request(); // get temperature from coap_server.c
 
 	response = otCoapNewMessage(srv_context.ot, NULL);
 	if (response == NULL) {
@@ -172,8 +172,8 @@ static otError temperature_response_send(otMessage *request_message, const otMes
 		goto end;
 	}
 
-	payload = &val;
-	payload_size = sizeof(val);
+	payload = data_buf;
+	payload_size = sizeof(data_buf);
 
 	error = otMessageAppend(response, payload, payload_size);
 	if (error != OT_ERROR_NONE) {
@@ -182,7 +182,7 @@ static otError temperature_response_send(otMessage *request_message, const otMes
 
 	error = otCoapSendResponse(srv_context.ot, response, message_info);
 
-	//LOG_INF("Temperature response sent: %d degC", val);
+	LOG_INF("Temperature response sent: %d degC", data_buf);
 
 end:
 	if (error != OT_ERROR_NONE && response != NULL) {
@@ -198,7 +198,7 @@ static void temperature_request_handler(void *context, otMessage *message, const
 
 	ARG_UNUSED(context);
 
-	//LOG_INF("Received temperature request");
+	LOG_INF("Received temperature request");
 
 	if ((otCoapMessageGetType(message) == OT_COAP_TYPE_NON_CONFIRMABLE) &&
 	    (otCoapMessageGetCode(message) == OT_COAP_CODE_GET)) {
@@ -314,7 +314,7 @@ static otError light_get_response_send(otMessage *request_message, const otMessa
 		goto end;
 	}
 
-	//LOG_INF("Light GET response sent: %d", val);
+	LOG_INF("Light GET response sent: %d", val);
 
 end:
 	if (error != OT_ERROR_NONE && response != NULL) {
@@ -356,11 +356,11 @@ static void light_request_handler(void *context, otMessage *message, const otMes
 			goto end;
 		}
 		srv_context.on_light_request(command); // update light in coap_server.c
-		//LOG_INF("Received light PUT request: %c", command);
+		LOG_INF("Received light PUT request: %c", command);
 		light_put_response_send(message, &msg_info);
 	}
 	else {
-		//LOG_INF("Received light GET request");
+		LOG_INF("Received light GET request");
 		light_get_response_send(message, &msg_info);
 	}
 
