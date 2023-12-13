@@ -182,7 +182,7 @@ static otError temperature_response_send(otMessage *request_message, const otMes
 
 	error = otCoapSendResponse(srv_context.ot, response, message_info);
 
-	LOG_INF("Temperature response sent: %d degC", data_buf);
+	//LOG_INF("Temperature response sent: %d degC", data_buf);
 
 end:
 	if (error != OT_ERROR_NONE && response != NULL) {

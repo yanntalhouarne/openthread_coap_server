@@ -44,6 +44,10 @@
 		status = "ok";
 		reg = <0x36 >;
 	};
+	ti_hdc: ti_hdc@40 {
+		compatible = "ti,hdc","ti,hdc1080";
+		reg = <0x40>;
+	};
 };
 &arduino_adc {
 	io-channel-map = <0 &adc 1>, <1 &adc 2>, <2 &adc 4>, <3 &adc 5>, <4 &adc 6>, <5 &adc 7>;

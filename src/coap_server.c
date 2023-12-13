@@ -20,6 +20,7 @@
 #include <zephyr/drivers/adc.h>
 #include <zephyr/drivers/fuel_gauge.h>
 #include <zephyr/devicetree.h>
+#include <zephyr/drivers/sensor.h>
 
 #include "ot_coap_utils.h"
 #include "ot_srp_config.h"
@@ -38,6 +39,9 @@ static const struct adc_dt_spec adc_channels[] = {
 			     DT_SPEC_AND_COMMA)
 };
 
+/* HDC1810 temp/humidity sensor */
+const struct device *const dev_hdc = DEVICE_DT_GET_ONE(ti_hdc);
+
 LOG_MODULE_REGISTER(coap_server, CONFIG_COAP_SERVER_LOG_LEVEL);
 
 #define OT_CONNECTION_LED 3
@@ -51,7 +55,7 @@ LOG_MODULE_REGISTER(coap_server, CONFIG_COAP_SERVER_LOG_LEVEL);
 #define HUMIDITY_WET 800
 
 // data global
-uint8_t data[2] = {0};
+uint8_t data[4] = {0};
 
 // FW version
 const char fw_version[] = SRP_CLIENT_INFO;
@@ -202,7 +206,19 @@ static int8_t * on_temperature_request()
 		}
 	}
 
-	LOG_INF("temperature = %d, battery = %d\n", data[0], data[1]);
+	/* READ AIR TEMPERATURE AND HUMIDITY*/
+	struct sensor_value temp, humidity;
+	sensor_sample_fetch(dev_hdc);
+	sensor_channel_get(dev_hdc, SENSOR_CHAN_AMBIENT_TEMP, &temp);
+	sensor_channel_get(dev_hdc, SENSOR_CHAN_HUMIDITY, &humidity);
+	data[2] = humidity.val1;
+	data[3] = temp.val1;
+
+	/* print the result */
+	LOG_INF("Temp = %d.%06d C, RH = %d.%06d %%\n",
+			temp.val1, temp.val2, humidity.val1, humidity.val2);
+
+	LOG_INF("soil_humidity = %d, battery = %d, air_humidity = %d, temperature = %d\n", data[0], data[1]);
 
 	return data;
 }
@@ -410,8 +426,27 @@ int main(void)
 	// }
 	// k_sleep(K_MSEC(5000));
 
-	/* Fuel Gauge */
+	/* Humidity/temp sensor */
+	if (!device_is_ready(dev_hdc)) {
+		LOG_INF("sensor: device not ready.\n");
+		return 0;
+	}
 
+	LOG_INF("Dev %p name %s is ready!\n", dev_hdc, dev_hdc->name);
+
+	struct sensor_value temp, humidity;
+
+	/* take a sample */
+	LOG_INF("Fetching...\n");
+	sensor_sample_fetch(dev_hdc);
+	sensor_channel_get(dev_hdc, SENSOR_CHAN_AMBIENT_TEMP, &temp);
+	sensor_channel_get(dev_hdc, SENSOR_CHAN_HUMIDITY, &humidity);
+
+	/* print the result */
+	LOG_INF("Temp = %d.%06d C, RH = %d.%06d %%\n",
+			temp.val1, temp.val2, humidity.val1, humidity.val2);
+
+	/* Fuel Gauge */
 	if (dev_fuelgauge == NULL) {
 		LOG_ERR("\nError: no device found.\n");
 		goto end;
