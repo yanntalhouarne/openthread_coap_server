@@ -49,7 +49,7 @@ LOG_MODULE_REGISTER(coap_server, CONFIG_COAP_SERVER_LOG_LEVEL);
 #define LIGHT_LED 0
 #define WATER_PUMP 4
 
-#define PUMP_MAX_ACTIVE_TIME 10 // seconds
+#define PUMP_MAX_ACTIVE_TIME 4 // seconds
 #define ADC_TIMER_PERIOD 1 // seconds
 #define HUMIDITY_DRY 2100 // in mV
 #define HUMIDITY_WET 800
@@ -281,7 +281,7 @@ static void on_thread_state_changed(otChangedFlags flags, struct openthread_cont
 		case OT_DEVICE_ROLE_CHILD:
 		case OT_DEVICE_ROLE_ROUTER:
 		case OT_DEVICE_ROLE_LEADER:
-			dk_set_led_on(OT_CONNECTION_LED);
+			//dk_set_led_on(OT_CONNECTION_LED);
 			otSrpClientBuffersServiceEntry *entry = NULL;
 			uint16_t                        size;
 			char                           *string;
